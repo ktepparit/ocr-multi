@@ -6,20 +6,27 @@ from PIL import Image
 st.set_page_config(page_title="Kratingdaeng AI Scanner", page_icon="⚡", layout="centered")
 
 # --- เตรียมหน่วยความจำ (Session State) ---
-# เพื่อให้แอพจำค่าได้ ไม่ต้องสแกนรูปเดิมซ้ำ
 if 'scan_results' not in st.session_state:
     st.session_state['scan_results'] = {}
 
-# --- ส่วนใส่ API Key ---
+# --- ส่วนจัดการ API Key (แบบปลอดภัย) ---
 with st.sidebar:
     st.header("🔑 ตั้งค่าระบบ")
     st.success("Model: gemini-pro-latest (Batch Mode)")
     
-    default_api_key = "AIzaSyCmWmCTFIZ31hNPYdQMjwGfEzP9SxJnl6o" 
-    api_key_input = st.text_input("ใส่ Google API Key", value=default_api_key, type="password")
-    api_key = api_key_input if api_key_input else default_api_key
+    api_key = None
     
-    # ปุ่มเคลียร์ค่าเผื่ออยากเริ่มใหม่หมด
+    # 1. เช็คใน App Settings (Secrets) ก่อน
+    if "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+        st.success("✅ เชื่อมต่อ API Key จาก App Settings แล้ว")
+    else:
+        # 2. ถ้าไม่มีใน Settings ให้แสดงช่องกรอก
+        api_key = st.text_input("ใส่ Google API Key", type="password")
+        if not api_key:
+            st.warning("⚠️ ไม่พบ API Key ใน Settings กรุณากรอกเอง")
+    
+    # ปุ่มเคลียร์ค่า
     if st.button("ล้างค่าทั้งหมด (Reset)"):
         st.session_state['scan_results'] = {}
         st.rerun()
@@ -54,24 +61,22 @@ def gemini_vision_scan(image_pil, key):
 
 # --- ส่วนแสดงผล UI ---
 st.title("⚡ Kratingdaeng AI Scanner")
-st.caption("Mode: Batch Processing (เลือกหลายรูป -> กดสแกนทีเดียว)") 
+st.caption("Mode: Batch Processing (อ่านหลายรูปพร้อมกัน)") 
 st.write("---")
 
 if not api_key:
-    st.warning("⚠️ กรุณาใส่ API Key ทางด้านซ้ายก่อนใช้งาน")
+    st.info("👈 กรุณาตั้งค่า API Key เพื่อเริ่มใช้งาน")
 else:
     tab1, tab2 = st.tabs(["📂 อัปโหลดหลายรูป (Batch)", "📷 ถ่ายรูป"])
 
     # --- TAB 1: Upload แบบ Batch ---
     with tab1:
-        # allow user to upload multiple files
         uploaded_files = st.file_uploader(
             "เลือกรูปภาพ (กด Ctrl ค้างเพื่อเลือกหลายรูป)...", 
             type=["jpg", "png", "jpeg"], 
             accept_multiple_files=True
         )
 
-        # ปุ่มสั่งเริ่มทำงาน (ถ้าไม่กด ก็ยังไม่สแกน)
         if uploaded_files:
             st.info(f"คุณเลือกไว้ทั้งหมด {len(uploaded_files)} รูป")
             
@@ -79,17 +84,13 @@ else:
                 progress_bar = st.progress(0)
                 
                 for i, uploaded_file in enumerate(uploaded_files):
-                    # สร้าง ID เฉพาะของไฟล์ (ใช้ชื่อไฟล์ + ขนาดไฟล์) เพื่อเช็คว่าเคยสแกนยัง
                     file_id = f"{uploaded_file.name}_{uploaded_file.size}"
                     
-                    # ถ้ายังไม่เคยมีในความจำ ให้สแกนใหม่
                     if file_id not in st.session_state['scan_results']:
                         image = Image.open(uploaded_file)
                         code = gemini_vision_scan(image, api_key)
-                        # บันทึกลงความจำ
                         st.session_state['scan_results'][file_id] = code
                     
-                    # อัปเดตหลอดความคืบหน้า
                     progress_bar.progress((i + 1) / len(uploaded_files))
                 
                 st.success("✅ สแกนครบทุกรูปแล้ว!")
@@ -97,10 +98,8 @@ else:
             st.markdown("---")
             st.subheader("📝 ผลลัพธ์:")
 
-            # วนลูปโชว์ผลลัพธ์ (ดึงจากความจำมาโชว์ทันที)
             for i, uploaded_file in enumerate(uploaded_files):
                 file_id = f"{uploaded_file.name}_{uploaded_file.size}"
-                
                 col1, col2 = st.columns([1, 3])
                 image = Image.open(uploaded_file)
                 
@@ -108,10 +107,8 @@ else:
                     st.image(image, width=80, caption=f"Img {i+1}")
                 
                 with col2:
-                    # เช็คว่ามีผลลัพธ์ในความจำไหม
                     if file_id in st.session_state['scan_results']:
                         code = st.session_state['scan_results'][file_id]
-                        
                         if "Error" in code:
                             st.error(code)
                         else:
@@ -125,12 +122,11 @@ else:
                         st.info("รอการกดปุ่มสแกน...")
                 st.markdown("---")
 
-    # --- TAB 2: Camera (เหมือนเดิม) ---
+    # --- TAB 2: Camera ---
     with tab2:
         camera_image = st.camera_input("ถ่ายรูป")
         if camera_image is not None:
             image = Image.open(camera_image)
-            # กล้องถ่ายทีละรูป สแกนเลยไม่ต้องรอปุ่ม
             with st.spinner('AI กำลังอ่าน...'):
                 code = gemini_vision_scan(image, api_key)
                 if "Error" in code:
