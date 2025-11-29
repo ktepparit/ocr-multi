@@ -1,94 +1,144 @@
 import streamlit as st
-import easyocr
-import numpy as np
+import google.generativeai as genai
 from PIL import Image
 
-# --- การตั้งค่าและโหลดโมเดล ---
-st.set_page_config(page_title="Kratingdaeng OCR Scanners", page_icon="⚡", layout="centered")
+# --- ตั้งค่าหน้าเว็บ ---
+st.set_page_config(page_title="Kratingdaeng AI Scanner", page_icon="⚡", layout="centered")
 
-# ฟังก์ชันโหลดโมเดล (Cache ไว้เพื่อให้โหลดเร็วขึ้นในครั้งต่อๆ ไป)
-@st.cache_resource
-def load_model():
-    # โหลดภาษาอังกฤษสำหรับอ่านรหัส
-    return easyocr.Reader(['en'], gpu=False)
+# --- เตรียมหน่วยความจำ (Session State) ---
+# เพื่อให้แอพจำค่าได้ ไม่ต้องสแกนรูปเดิมซ้ำ
+if 'scan_results' not in st.session_state:
+    st.session_state['scan_results'] = {}
 
-# สร้างตัวอ่านรอไว้เลย
-with st.spinner('กำลังเตรียมระบบอ่านรหัส...'):
-    reader = load_model()
+# --- ส่วนใส่ API Key ---
+with st.sidebar:
+    st.header("🔑 ตั้งค่าระบบ")
+    st.success("Model: gemini-pro-latest (Batch Mode)")
+    
+    default_api_key = "AIzaSyCmWmCTFIZ31hNPYdQMjwGfEzP9SxJnl6o" 
+    api_key_input = st.text_input("ใส่ Google API Key", value=default_api_key, type="password")
+    api_key = api_key_input if api_key_input else default_api_key
+    
+    # ปุ่มเคลียร์ค่าเผื่ออยากเริ่มใหม่หมด
+    if st.button("ล้างค่าทั้งหมด (Reset)"):
+        st.session_state['scan_results'] = {}
+        st.rerun()
 
-# --- ส่วนแสดงผลโลโก้ (Banner) ---
-try:
-    # พยายามหารูปชื่อ banner.png ในโฟลเดอร์เดียวกัน
-    st.image("banner.png", use_column_width=True)
-except FileNotFoundError:
-    # ถ้าหาไม่เจอ ให้แสดงข้อความแจ้งเตือน (จะไม่แสดงเมื่อคุณอัปรูปแล้ว)
-    st.warning("💡 คำแนะนำ: กรุณาอัปโหลดรููปภาพโลโก้ (ตั้งชื่อว่า banner.png) ไปที่ GitHub ของคุณ เพื่อให้แสดงตรงนี้")
-    st.title("⚡ ระบบสแกนรหัสฝาขวด") # ชื่อสำรองถ้าไม่มีรูป
+# --- ฟังก์ชันอ่านภาพด้วย Gemini ---
+def gemini_vision_scan(image_pil, key):
+    try:
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel('gemini-pro-latest')
 
-# --- ส่วนเนื้อหาหลัก ---
+        prompt = """
+        You are an advanced AI reading a serial code on a bottle cap.
+        The text is in a DOT-MATRIX font.
+        
+        YOUR TASK: Extract the exactly 12-character alphanumeric code.
+
+        CORRECTION RULES:
+        1. '7' vs 'Z': In this font, '7' has a curved top like 'Z'. Unless clearly 'Z', interpret as '7'.
+        2. '6' vs 'G': '6' often looks like 'G'. Check closely.
+        3. 'W' vs 'I': 'W' is wide, do not mistake for 'I'.
+        
+        OUTPUT FORMAT:
+        - Exact 12 characters (A-Z, 0-9).
+        - Ignore "P Bev", "21", "HDPE".
+        - Output ONLY the code.
+        """
+        
+        response = model.generate_content([prompt, image_pil])
+        return response.text.strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# --- ส่วนแสดงผล UI ---
+st.title("⚡ Kratingdaeng AI Scanner")
+st.caption("Mode: Batch Processing (เลือกหลายรูป -> กดสแกนทีเดียว)") 
 st.write("---")
-st.subheader("เลือกโหมดการทำงาน")
 
-# สร้าง Tabs เพื่อแยกการทำงาน
-tab1, tab2 = st.tabs(["📂 อัปโหลดหลายรูป (Batch)", "📷 ถ่ายรูปทีละรูป (Camera)"])
+if not api_key:
+    st.warning("⚠️ กรุณาใส่ API Key ทางด้านซ้ายก่อนใช้งาน")
+else:
+    tab1, tab2 = st.tabs(["📂 อัปโหลดหลายรูป (Batch)", "📷 ถ่ายรูป"])
 
-# ================= โหมดที่ 1: อัปโหลดหลายรูป =================
-with tab1:
-    st.write("เลือกรูปภาพฝาขวดที่ต้องการอ่าน (กด Ctrl หรือ Shift ค้างไว้เพื่อเลือกหลายรูป)")
-    # accept_multiple_files=True คือกุญแจสำคัญ
-    uploaded_files = st.file_uploader("เลือกไฟล์รูปภาพ...", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    # --- TAB 1: Upload แบบ Batch ---
+    with tab1:
+        # allow user to upload multiple files
+        uploaded_files = st.file_uploader(
+            "เลือกรูปภาพ (กด Ctrl ค้างเพื่อเลือกหลายรูป)...", 
+            type=["jpg", "png", "jpeg"], 
+            accept_multiple_files=True
+        )
 
-    if uploaded_files:
-        num_files = len(uploaded_files)
-        st.success(f"เลือกมาทั้งหมด {num_files} รูปภาพ. เริ่มประมวลผล...")
-        st.markdown("---")
-        
-        # วนลูปอ่านทีละรูป
-        for i, uploaded_file in enumerate(uploaded_files):
-            with st.container():
-                # จัดหน้าให้อยู่ใน 2 คอลัมน์ (ซ้าย=ชื่อไฟล์/รูปตัวอย่าง, ขวา=ผลลัพธ์)
+        # ปุ่มสั่งเริ่มทำงาน (ถ้าไม่กด ก็ยังไม่สแกน)
+        if uploaded_files:
+            st.info(f"คุณเลือกไว้ทั้งหมด {len(uploaded_files)} รูป")
+            
+            if st.button("🚀 เริ่มสแกนรูปทั้งหมด (Start Scan)", type="primary"):
+                progress_bar = st.progress(0)
+                
+                for i, uploaded_file in enumerate(uploaded_files):
+                    # สร้าง ID เฉพาะของไฟล์ (ใช้ชื่อไฟล์ + ขนาดไฟล์) เพื่อเช็คว่าเคยสแกนยัง
+                    file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+                    
+                    # ถ้ายังไม่เคยมีในความจำ ให้สแกนใหม่
+                    if file_id not in st.session_state['scan_results']:
+                        image = Image.open(uploaded_file)
+                        code = gemini_vision_scan(image, api_key)
+                        # บันทึกลงความจำ
+                        st.session_state['scan_results'][file_id] = code
+                    
+                    # อัปเดตหลอดความคืบหน้า
+                    progress_bar.progress((i + 1) / len(uploaded_files))
+                
+                st.success("✅ สแกนครบทุกรูปแล้ว!")
+
+            st.markdown("---")
+            st.subheader("📝 ผลลัพธ์:")
+
+            # วนลูปโชว์ผลลัพธ์ (ดึงจากความจำมาโชว์ทันที)
+            for i, uploaded_file in enumerate(uploaded_files):
+                file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+                
                 col1, col2 = st.columns([1, 3])
-                
                 image = Image.open(uploaded_file)
-                image_np = np.array(image)
-
-                with col1:
-                    st.markdown(f"**รูปที่ {i+1}**")
-                    st.caption(uploaded_file.name)
-                    # แสดงรูปตัวอย่างเล็กๆ (ถ้าต้องการปิด ให้ใส่ # ข้างหน้าบรรทัดนี้)
-                    st.image(image, width=100) 
-
-                with col2:
-                    with st.spinner(f'กำลังอ่าน...'):
-                        try:
-                            result = reader.readtext(image_np)
-                            extracted_text = " ".join([text[1] for text in result])
-                            
-                            if extracted_text:
-                                # หัวใจสำคัญ: ใช้ st.code แยกแต่ละอัน เพื่อให้มีปุ่ม Copy แยกกัน
-                                st.code(extracted_text, language=None)
-                            else:
-                                st.caption("⚠️ ไม่พบข้อความ")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
                 
-                st.markdown("---") # เส้นคั่นระหว่างรายการ
+                with col1:
+                    st.image(image, width=80, caption=f"Img {i+1}")
+                
+                with col2:
+                    # เช็คว่ามีผลลัพธ์ในความจำไหม
+                    if file_id in st.session_state['scan_results']:
+                        code = st.session_state['scan_results'][file_id]
+                        
+                        if "Error" in code:
+                            st.error(code)
+                        else:
+                            clean_code = code.replace(" ", "").replace("\n", "")
+                            st.code(clean_code, language=None)
+                            if len(clean_code) == 12:
+                                st.caption("✅ ครบ 12 หลัก")
+                            else:
+                                st.caption(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
+                    else:
+                        st.info("รอการกดปุ่มสแกน...")
+                st.markdown("---")
 
-# ================= โหมดที่ 2: ถ่ายรูปทีละรูป (เหมือนเดิม) =================
-with tab2:
-    camera_image = st.camera_input("ถ่ายรูปฝาขวด")
-    if camera_image is not None:
-        image = Image.open(camera_image)
-        image_np = np.array(image)
-        
-        st.write("ผลลัพธ์:")
-        with st.spinner('กำลังอ่าน...'):
-            try:
-                result = reader.readtext(image_np)
-                extracted_text = " ".join([text[1] for text in result])
-                if extracted_text:
-                    st.code(extracted_text, language=None)
+    # --- TAB 2: Camera (เหมือนเดิม) ---
+    with tab2:
+        camera_image = st.camera_input("ถ่ายรูป")
+        if camera_image is not None:
+            image = Image.open(camera_image)
+            # กล้องถ่ายทีละรูป สแกนเลยไม่ต้องรอปุ่ม
+            with st.spinner('AI กำลังอ่าน...'):
+                code = gemini_vision_scan(image, api_key)
+                if "Error" in code:
+                    st.error(code)
                 else:
-                    st.warning("ไม่พบข้อความ ลองปรับแสงหรือระยะโฟกัสครับ")
-            except Exception as e:
-                st.error(f"เกิดข้อผิดพลาด: {e}")
+                    clean_code = code.replace(" ", "").replace("\n", "")
+                    st.code(clean_code, language=None)
+                    if len(clean_code) == 12:
+                        st.caption("✅ ครบ 12 หลัก")
+                    else:
+                        st.caption(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
