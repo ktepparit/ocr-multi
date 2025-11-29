@@ -60,7 +60,6 @@ def gemini_vision_scan(image_pil, key):
         return f"Error: {str(e)}"
         
 # --- ส่วนแสดงผล UI ---
-try:
     try:
         st.image("banner.png", width=150)
     except:
@@ -145,4 +144,5 @@ else:
                         st.caption("✅ ครบ 12 หลัก")
                     else:
                         st.caption(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
+
 
