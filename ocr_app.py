@@ -6,6 +6,7 @@ from PIL import Image
 st.set_page_config(page_title="Kratingdaeng AI Scanner", page_icon="⚡", layout="centered")
 
 # --- เตรียมหน่วยความจำ (Session State) ---
+# เพื่อให้แอพจำค่าได้ ไม่ต้องสแกนรูปเดิมซ้ำ
 if 'scan_results' not in st.session_state:
     st.session_state['scan_results'] = {}
 
@@ -35,6 +36,7 @@ with st.sidebar:
 def gemini_vision_scan(image_pil, key):
     try:
         genai.configure(api_key=key)
+        # ใช้โมเดล gemini-pro-latest ตามที่ขอ
         model = genai.GenerativeModel('gemini-pro-latest')
 
         prompt = """
@@ -58,14 +60,15 @@ def gemini_vision_scan(image_pil, key):
         return response.text.strip()
     except Exception as e:
         return f"Error: {str(e)}"
-        
+
 # --- ส่วนแสดงผล UI ---
-    try:
-        st.image("banner.png", width=150)
-    except:
-        pass 
-    
-# --- ส่วนแสดงผล UI ---
+
+# แสดงโลโก้ (ถ้ามีไฟล์ banner.png)
+try:
+    st.image("banner.png", width=150)
+except:
+    pass 
+
 st.title("⚡ Kratingdaeng AI Scanner")
 st.caption("Mode: Batch Processing (อ่านหลายรูปพร้อมกัน)") 
 st.write("---")
@@ -86,12 +89,15 @@ else:
         if uploaded_files:
             st.info(f"คุณเลือกไว้ทั้งหมด {len(uploaded_files)} รูป")
             
+            # ปุ่มเริ่มทำงาน (Start Button)
             if st.button("🚀 เริ่มสแกนรูปทั้งหมด (Start Scan)", type="primary"):
                 progress_bar = st.progress(0)
                 
                 for i, uploaded_file in enumerate(uploaded_files):
+                    # สร้าง ID เฉพาะของไฟล์
                     file_id = f"{uploaded_file.name}_{uploaded_file.size}"
                     
+                    # ถ้ายังไม่เคยมีในความจำ ให้สแกนใหม่
                     if file_id not in st.session_state['scan_results']:
                         image = Image.open(uploaded_file)
                         code = gemini_vision_scan(image, api_key)
@@ -104,6 +110,7 @@ else:
             st.markdown("---")
             st.subheader("📝 ผลลัพธ์:")
 
+            # วนลูปแสดงผลลัพธ์
             for i, uploaded_file in enumerate(uploaded_files):
                 file_id = f"{uploaded_file.name}_{uploaded_file.size}"
                 col1, col2 = st.columns([1, 3])
@@ -144,5 +151,3 @@ else:
                         st.caption("✅ ครบ 12 หลัก")
                     else:
                         st.caption(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
-
-
