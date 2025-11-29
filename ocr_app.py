@@ -58,7 +58,14 @@ def gemini_vision_scan(image_pil, key):
         return response.text.strip()
     except Exception as e:
         return f"Error: {str(e)}"
-
+        
+# --- ส่วนแสดงผล UI ---
+try:
+    try:
+        st.image("banner.png", width=150)
+    except:
+        pass 
+    
 # --- ส่วนแสดงผล UI ---
 st.title("⚡ Kratingdaeng AI Scanner")
 st.caption("Mode: Batch Processing (อ่านหลายรูปพร้อมกัน)") 
@@ -138,3 +145,4 @@ else:
                         st.caption("✅ ครบ 12 หลัก")
                     else:
                         st.caption(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
+
