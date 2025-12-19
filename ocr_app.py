@@ -13,7 +13,7 @@ if 'scan_results' not in st.session_state:
 # --- ส่วนจัดการ API Key (แบบปลอดภัย) ---
 with st.sidebar:
     st.header("🔑 ตั้งค่าระบบ")
-    st.success("Model: gemini-pro-latest")
+    st.success("Model: gemini-3-flash-preview")
     
     api_key = None
     
@@ -171,3 +171,4 @@ else:
                             st.success("✅ ครบ 12 หลัก")
                         else:
                             st.warning(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
+
