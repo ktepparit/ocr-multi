@@ -2,9 +2,48 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# --- ตั้งค่าหน้าเว็บ ---
+# --- ตั้งค่าหน้าเว็บ (ต้องอยู่บรรทัดแรกสุดของ Streamlit) ---
 st.set_page_config(page_title="Kratingdaeng AI Scanner", page_icon="⚡", layout="wide") 
-# ปรับ layout="wide" เพื่อให้มีพื้นที่แสดงรูปแนวนอนมากขึ้น
+
+# ==========================================
+# 🔒 ส่วนระบบ Login (เพิ่มใหม่)
+# ==========================================
+def check_password():
+    """Returns True if the user had a correct password."""
+
+    # ถ้ายังไม่มีการเก็บสถานะการ Login ให้ตั้งค่าเป็น False ไว้ก่อน
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    # ถ้ารหัสผ่านถูกแล้ว ให้ผ่านไปได้เลย
+    if st.session_state["password_correct"]:
+        return True
+
+    # หน้าจอ Login
+    st.title("🔒 กรุณาเข้าสู่ระบบ")
+    
+    # ตรวจสอบว่ามีการตั้งค่า password ใน secrets หรือไม่
+    if "my_app_password" not in st.secrets:
+        st.error("ไม่พบการตั้งค่า 'my_app_password' ใน Secrets")
+        return False
+
+    password_input = st.text_input("ใส่รหัสผ่าน", type="password")
+    
+    if st.button("Login"):
+        if password_input == st.secrets["my_app_password"]:
+            st.session_state["password_correct"] = True
+            st.rerun()  # รีโหลดหน้าเว็บเพื่อเข้าสู่หน้าหลัก
+        else:
+            st.error("❌ รหัสผ่านไม่ถูกต้อง")
+            
+    return False
+
+if not check_password():
+    st.stop()  # หยุดการทำงาน ถ้ายังไม่ Login จะไม่รันโค้ดส่วนด้านล่าง
+
+# ==========================================
+# 🚀 เข้าสู่แอปหลัก (หลังจาก Login ผ่านแล้ว)
+# ==========================================
 
 # --- เตรียมหน่วยความจำ (Session State) ---
 if 'scan_results' not in st.session_state:
@@ -37,7 +76,8 @@ with st.sidebar:
 def gemini_vision_scan(image_pil, key):
     try:
         genai.configure(api_key=key)
-        model = genai.GenerativeModel('gemini-pro-latest')
+        # หมายเหตุ: เช็คชื่อ Model ให้ชัวร์ว่า account รองรับรุ่นไหน (pro-vision, 1.5-flash, etc.)
+        model = genai.GenerativeModel('gemini-1.5-flash') 
 
         prompt = """
         You are an advanced AI reading a serial code on a bottle cap.
@@ -171,4 +211,3 @@ else:
                             st.success("✅ ครบ 12 หลัก")
                         else:
                             st.warning(f"⚠️ อ่านได้ {len(clean_code)} หลัก")
-
